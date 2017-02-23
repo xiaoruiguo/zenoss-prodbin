@@ -96,11 +96,11 @@ class BatchDeviceLoader(ZCmdBase):
 # If no organizer is specified at the beginning of the file,
 # defaults to the /Devices/Discovered device class.
 device0 comments="A simple device"
-# All settings must be seperated by a comma.
+# All settings must be separated by a comma.
 device1 comments="A simple device", zSnmpCommunity='blue', zSnmpVer='v1'
 
 # Notes for this file:
-#  * Oraganizer names *must* start with '/'
+#  * Organizer names *must* start with '/'
 #
 /Devices/Server/Linux zSnmpPort=1543
 # Python strings can use either ' or " -- there's no difference.
@@ -134,7 +134,7 @@ windows_device_3 setTitle="Windows AD Server 1", setHWTag="service-tag-ABCDEF", 
 # The 'loader' setting requires a registered utility, and 'loader_arg_keys' is
 # a list from which any other settings will be passed into the loader callable.
 #
-# Here is a commmented-out example of how a VMware endpoint might be added:
+# Here is a commented-out example of how a VMware endpoint might be added:
 #
 #/Devices/VMware loader='vmware', loader_arg_keys=['host', 'username', 'password', 'useSsl', 'id']
 #esxwin2 id='esxwin2', host='esxwin2.zenoss.loc', username='testuser', password='password', useSsl=True
@@ -229,24 +229,24 @@ windows_device_3 setTitle="Windows AD Server 1", setHWTag="service-tag-ABCDEF", 
         for zprop, value in device_specs.items():
             self.log.debug( "Evaluating zProperty <%s -> %s> on %s" % (zprop, value, device.id) )
             if not iszprop(zprop):
-                self.log.debug( "Evaluating zProperty <%s -> %s> on %s: not iszprop()" % (zprop, value, device.id) )
+                self.log.debug("Evaluating zProperty <%s -> %s> on %s: not iszprop()" % (zprop, value, device.id))
                 continue
 
             if zprop in dev_zprops:
                 try:
                     self.log.debug( "Setting zProperty <%s -> %s> on %s (currently set to %s)" % (
-                       zprop, value, device.id, getattr(device, zprop, 'notset')) )
+                       zprop, value, device.id, getattr(device, zprop, 'notset')))
                     device.setZenProperty(zprop, value)
                 except BadRequest:
-                    self.log.warn( "Object %s zproperty %s is invalid or duplicate" % (
-                       device.titleOrId(), zprop) )
+                    self.log.warn( "Object %s zProperty %s is invalid or duplicate" % (
+                       device.titleOrId(), zprop))
                 except Exception, ex:
-                    self.log.warn( "Object %s zproperty %s not set (%s)" % (
+                    self.log.warn( "Object %s zProperty %s not set (%s)" % (
                        device.titleOrId(), zprop, ex) )
                 self.log.debug( "Set zProperty <%s -> %s> on %s (now set to %s)" % (
-                   zprop, value, device.id, getattr(device, zprop, 'notset')) )
+                   zprop, value, device.id, getattr(device, zprop, 'notset')))
             else:
-                self.log.warn( "The zproperty %s doesn't exist in %s" % (
+                self.log.warn( "The zProperty %s doesn't exist in %s" % (
                    zprop, device_specs.get('deviceName', device.id)))
 
     def applyCustProps(self, device, device_specs):
@@ -303,7 +303,10 @@ windows_device_3 setTitle="Windows AD Server 1", setHWTag="service-tag-ABCDEF", 
             if path in existing:
                 continue
             try:
-                base.manage_addOrganizer(path)
+                if self.options.nocommit:
+                    self.log.info("--nocommit option specified.  Skipping addition of locations, groups or organizers: %s" % path)
+                else:
+                    base.manage_addOrganizer(path)
             except BadRequest:
                 pass
 
@@ -318,6 +321,10 @@ windows_device_3 setTitle="Windows AD Server 1", setHWTag="service-tag-ABCDEF", 
         if base is None:
             self.log.error("The base of path %s (%s) does not exist -- skipping",
                            baseOrg, path)
+            return
+
+        if self.options.nocommit:
+            self.log.info("--nocommit option specified.  Skipping addition of organizer %s" % path)
             return
 
         try:
@@ -356,7 +363,7 @@ windows_device_3 setTitle="Windows AD Server 1", setHWTag="service-tag-ABCDEF", 
 
         for functor, value in device_specs.items():
             if iszprop(functor) or iscustprop(functor) or functor in internalVars:
-               continue
+                continue
 
             # Special case for organizers which can take a description
             if functor in ('description', 'address', 'comments', 'rackSlot'):
@@ -587,6 +594,10 @@ windows_device_3 setTitle="Windows AD Server 1", setHWTag="service-tag-ABCDEF", 
             if key in device_specs:
                 specs[key] = device_specs[key]
 
+        if self.options.nocommit:
+            self.log.info("--nocommit option specified.  Skipping creation of device %s" % name)
+            return None
+
         try:
             self.log.info("Creating initial device %s (customized properties are set after creation)" % name)
 
@@ -596,8 +607,7 @@ windows_device_3 setTitle="Windows AD Server 1", setHWTag="service-tag-ABCDEF", 
             self.loader(**specs)
             devobj  = self.dmd.Devices.findDevice(name)
             if devobj is None:
-                self.log.error("Unable to find newly created device %s -- skipping" \
-                              % name)
+                self.log.error("Unable to find newly created device %s -- skipping" % name)
             else:
                 self.notifyNewDeviceCreated(name)
 
