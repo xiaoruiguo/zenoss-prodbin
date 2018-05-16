@@ -86,7 +86,7 @@ class SMIDump(object):
         # (s1, e1, s2, e2, ..., sN, eN) -> ((e1, s2), (e2, s3), ..., (eN, L))
         # where 'L' is the offset to the end of the dump string.
         # (note that the first offset is ignored)
-        offsets = offsets[1:] + [len(self._dump)]
+        offsets = offsets[1:] + [len(self._dump)] if offsets else []
         mib_offsets = map(
             # The 'y' offset will be a '}' character in dumps containing
             # multiple MIB definitions.  To ensure correct offsets, move the

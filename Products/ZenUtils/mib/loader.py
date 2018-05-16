@@ -20,6 +20,8 @@ def coroutine(func):
 def broadcast(targets):
     """Send inputs to all targets.
     """
+    if not isinstance(targets, (list, tuple)):
+        targets = [targets]
     while True:
         item = (yield)
         for target in targets:
@@ -27,27 +29,27 @@ def broadcast(targets):
 
 
 @coroutine
-def split_into_defs(target):
-    """Accepts a complete (or partial) smidump Python string, breaks it
-    up into strings containing a single MIB definition, and send them to
-    the target.
+def transform(expr, target):
+    """Use the expr to convert the input and send the result to the target.
     """
     while True:
-        dump = (yield)
-        for mibdef in dump.definitions:
-            target.send(mibdef)
+        item = (yield)
+        if not isinstance(item, (list, tuple)):
+            item = [item]
+        item = expr(*item)
+        target.send(item)
 
 
 @coroutine
-def split_into_files(target):
-    """Accepts a complete (or partial) smidump Python string, breaks it
-    up into strings containing a one or more MIB definitions but all read
-    from the same MIB file, and send them to the target.
+def iterate(factory, target):
+    """Uses the factory to create an iterable, then iterates over the
+    iterable, sending each produced item to the target.
     """
     while True:
-        dump = (yield)
-        for filename, mibdefs in dump.files:
-            target.send((filename + ".py", mibdefs))
+        source = (yield)
+        iterable = factory(source)
+        for item in iterable:
+            target.send(item)
 
 
 @coroutine
@@ -61,18 +63,6 @@ def file_writer(path):
         with open(pathname, 'w') as fd:
             fd.write(contents)
             fd.flush()
-
-
-@coroutine
-def transform(expr, target):
-    """Use the expr to convert the input and send the result to the target.
-    """
-    while True:
-        item = (yield)
-        if not isinstance(item, (list, tuple)):
-            item = [item]
-        item = expr(*item)
-        target.send(item)
 
 
 @coroutine
@@ -114,7 +104,8 @@ class MIBLoader(object):
         #            | eval_python_literal \
         #            | add_mib organizer
         #
-        loader = split_into_defs(
+        loader = iterate(
+            lambda dump: dump.definitions,
             eval_python_literal(
                 add_mib(manager, organizer)
             )
@@ -125,19 +116,18 @@ class MIBLoader(object):
             # load pipeline.  There isn't a Unix pipe equivalent because
             # 'broadcast' creates multiple pipelines which isn't possible
             # on the command line.
-            loader = split_into_files(
-                # Broadcast pushes the output of split_info_files to each
-                # of its arguments.
-                broadcast(
-                    # Save each file into the 'savepath' directory.
-                    file_writer(savepath),
-                    # split_into_files output is a tuple of two elements,
-                    # however, only the second element is needed for the
-                    # loader, so use 'transform' to send only the second
-                    # element of the tuple to its target.
-                    transform(lambda x, y: y, loader)
-                )
-            )
+            loader = broadcast([
+                iterate(
+                    lambda dump: dump.files,
+                    # Add a '.py' suffix to the filename
+                    transform(
+                        lambda x, y: (x + ".py", y),
+                        file_writer(savepath)
+                    )
+                ),
+                # Re-use the loader defined above
+                loader
+            ])
         self._pipeline = loader
 
     def __enter__(self):
