@@ -1,6 +1,6 @@
 ##############################################################################
 #
-# Copyright (C) Zenoss, Inc. 2007, 2009, all rights reserved.
+# Copyright (C) Zenoss, Inc. 2007, 2009, 2018 all rights reserved.
 #
 # This content is made available according to terms specified in
 # License.zenoss under the directory where your Zenoss product is installed.
@@ -52,28 +52,19 @@ then executed "inside" the Zope database.
 
 import os
 import os.path
-import re
 import sys
 import tempfile
 
 import Globals
 
 from Products.ZenUtils.ZCmdBase import ZCmdBase
-from Products.ZenUtils.mib.pkgmgr import PackageManager
-from Products.ZenUtils.mib.config import SMIConfigFile
-from Products.ZenUtils.mib.tools import (
-    SMIDumpTool, evaluate_dump, group_dump_by_filename
+from Products.ZenUtils.mib import (
+    PackageManager, SMIConfigFile, SMIDumpTool, ModuleManager,
+    MibOrganizerPath, getMibModuleMap, MIBLoader
 )
 from Products.ZenUtils.Utils import zenPath, unused
 
 unused(Globals)
-
-CHUNK_SIZE = 50
-
-# Used to convert dictionary values in smidump output to raw strings
-# "key": "value" becomes "key": r"value"
-# This helps exec handle backslashes.
-_DICT_STRING_VALUE_PATTERN = re.compile(r'(:\s*)"')
 
 
 def _unique(iterable):
@@ -87,6 +78,95 @@ def _unique(iterable):
             yield item
 
 
+class BaseProcessor(object):
+    """Base class.
+    """
+
+    def __init__(self, dmd, options):
+        """
+        """
+        self._organizer = MibOrganizerPath(options.path)
+        moduleRegistry = getMibModuleMap(dmd)
+        self._moduleMgr = ModuleManager(dmd, moduleRegistry)
+
+
+class MIBFileProcessor(object):
+    """Load MIB files and add them to the DMD.
+    """
+
+    def __init__(self, dmd, options):
+        """
+        """
+        super(MIBFileProcessor, self).__init__(dmd, options)
+        self.pkgmgr = PackageManager(options.downloaddir, options.extractdir)
+        self._savepath = \
+            options.pythoncodedir if options.keeppythoncode else None
+        self._mibdepsdir = options.mibdepsdir
+
+    def run(self):
+        mibfiles = self._getMIBFiles()
+        paths = [zenPath("share", "mibs"), self._mibdepsdir]
+
+        loaderArgs = (self._moduleMgr, self._organizer)
+
+        with SMIConfigFile(path=paths) as cfg, \
+                MIBLoader(*loaderArgs, savepath=self._savepath) as loader:
+            tool = SMIDumpTool(config=cfg)
+            # returns string containing all the MIB definitions found
+            # in the provided set of MIBFile objects.
+            dump = tool.run(*mibfiles)
+            if dump:
+                loader.load(dump)
+
+    def _getMIBFiles(self):
+        """Returns a list of files containing the MIBs to load into the DMD.
+
+        @returns {list} List of MIBFile objects.
+        """
+        sources = self.args if self.args else [self.options.mibsdir]
+
+        mibfiles = []
+        for source in sources:
+            try:
+                pkg = self._pkgmgr.get(source)
+                mibfiles.extend(pkg.extract())
+            except Exception as ex:
+                self._logException("Invalid argument %s: %s", source, ex)
+
+        mibfiles = list(_unique(mibfiles))
+
+        if mibfiles:
+            self.log.debug(
+                "Found MIB files to load: %s", ', '.join(f for f in mibfiles)
+            )
+
+        return mibfiles
+
+
+class DumpFileProcessor(object):
+    """Load previously saved MIB dump files and add them to the DMD.
+    """
+
+    def __init__(self, dmd, options, dumpfiles):
+        """
+        """
+        super(MIBFileProcessor, self).__init__(dmd, options)
+        self._dumpfiles = dumpfiles
+
+    def run(self):
+        """
+        """
+        with MIBLoader(self._moduleMgr, self._organizer) as loader:
+            for filename in _unique(self._dumpfiles):
+                try:
+                    dump = open(filename).read()
+                except IOError as ex:
+                    self._logException("Failed to read %s: %s", filename, ex)
+                else:
+                    if dump:
+                        loader.load(dump)
+
+
 class ZenMib(ZCmdBase):
     """
     """
@@ -97,182 +177,48 @@ class ZenMib(ZCmdBase):
         else:
             self.log.error(mesg, *args)
 
-    def _saveDump(self, dump):
-        path = self.options.pythoncodedir
-        if not os.path.exists(path):
-            self.log.warning("Python code dir not found: %s", path)
-            return
-        if not os.path.isdir(path):
-            self.log.warning("Python code dir is not a directory: %s", path)
-            return
-        for filename, content in group_dump_by_filename(dump):
-            pyfile = os.path.join(path, filename + ".py")
-            with open(pyfile, 'w') as fd:
-                fd.write(content)
-                fd.flush()
-
-    def _evalDump(self, dump):
-        # evaluate_dump returns a generator.
-        try:
-            mibdef_generator = evaluate_dump(dump)
-            while True:
-                try:
-                    yield next(mibdef_generator)
-                except StandardError as ex:
-                    self._logException(
-                        "Failed to evaluate a MIB definition: %s", ex
-                    )
-        except StandardError as ex:
-            self._logException(
-                "Failed to evaluate MIB definition dump: %s", ex
-            )
-            raise StopIteration()
-
-    def _processSavedDump(self, filename):
-        try:
-            dump = open(filename).read()
-        except IOError as ex:
-            self._logException("Failed to read %s: %s", filename, ex)
-        else:
-            for mibdef in self._evalDump(dump):
-                try:
-                    self._loadMIB(mibdef)
-                except Exception as ex:
-                    self._logException(
-                        "Failed to load a MIB definition "
-                        "from file %s: %s", filename, ex
-                    )
-
-    def _getMIBFiles(self):
-        """Returns a list of files containing the MIBs to load into the DMD.
-
-        @returns {list} List of MIBFile objects.
+    def run(self):
         """
-        sources = self.args if self.args else [self.options.mibsdir]
-
-        mibfiles = set()
-        for source in sources:
-            try:
-                pkg = self._pkgmgr.get(source)
-                mibfiles.update(pkg.extract())
-            except Exception as ex:
-                self._logException("Invalid argument %s: %s", source, ex)
-
-        if mibfiles:
-            self.log.debug(
-                "Found MIB files to load: %s", ', '.join(f for f in mibfiles)
-            )
-
-        return list(_unique(mibfiles))
-
-    def main(self):
         """
-        Main loop of the program
-        """
-        if self.options.evalSavedPython:
-            for filename in _unique(self.options.evalSavedPython):
-                self._processSavedDump(filename)
-            return
-
-        self.pkgmgr = PackageManager(
-            self.log, self.options.downloaddir, self.options.extractdir
-        )
-
+        self.verifyOptions()
         try:
-            mibfiles = self._getMIBFiles()
-            paths = [zenPath("share", "mibs"), self.options.mibdepsdir]
-            with SMIConfigFile(path=paths) as cfg:
-                tool = SMIDumpTool(config=cfg)
-                # returns string containing all the MIB definitions found
-                # in the provided set of MIBFile objects.
-                dump = tool.run(*mibfiles)
+            if self.options.evalSavedPython:
+                processor = DumpFileProcessor(
+                    self.dmd, self.options, self.options.evalSavedPython
+                )
+            else:
+                processor = MIBFileProcessor(self.dmd, self.options)
 
-                if self.options.keeppythoncode:
-                    self._saveDump(dump)
-
-                moduleMgr = MIBModuleManager.make(self.dmd)
-                for mibdef in self._evalDump(dump):
-                    try:
-                        self._loadMIB(mibdef, moduleMgr)
-                    except Exception as ex:
-                        self._logException(
-                            "Failed to load a MIB definition: %s", ex
-                        )
+            processor.run()
         except Exception as ex:
-            self._logException(
-                "Unable to create smidump's config file: %s", ex
-            )
+            self._logException("Failure: %s", ex)
 
-    def _loadMIB(self, mibdef):
+    def verifyOptions(self):
         """
         """
-        # Standard MIB attributes that we expect in all MIBs
-        MIB_MOD_ATTS = ('language', 'contact', 'description')
-
-        self.syncdb()
-
-        mibName = mibdef['moduleName']
-
-        # Check to see if any MIB definitions in fileName have already
-        # been loaded into Zenoss. If so, warn but don't fail
-        dmdMibPath = self.options.path
-        mibModule = next(
-            iter(self.dmd.Mibs.mibs.findObjectsById(mibName)), None
-        )
-        if not mibModule:
-            # Create the container for the MIBs and define meta-data.
-            # In the DMD this creates another container class which
-            # contains mibnodes.  These data types are found in
-            # Products.ZenModel.MibModule and Products.ZenModel.MibNode
-            mibModule = self.dmd.Mibs.createMibModule(mibName, dmdMibPath)
-        else:
-        if dmdMibDict is not None and mibName in dmdMibDict:
-            dmdMibPath = dmdMibDict[mibName]
-            self.log.warn(
-                "MIB definition %s is already loaded at %s. "
-                "Will update it.", mibName, dmdMibPath
-            )
-            mibModule = self.dmd.Mibs.mibs.findObjectsById(mibName)[0]
-        else:
-            # Create the container for the MIBs and define meta-data.
-            # In the DMD this creates another container class which
-            # contains mibnodes.  These data types are found in
-            # Products.ZenModel.MibModule and Products.ZenModel.MibNode
-            mibModule = self.dmd.Mibs.createMibModule(mibName, dmdMibPath)
-
-        def gen():
-            for key, val in mibdef[mibName].iteritems():
-                if key in MIB_MOD_ATTS:
-                    yield key, val
-
-        for key, val in gen():
-            setattr(mibModule, key, val)
-        self.commit("Loaded MIB %s into the DMD" % mibName)
-
-        nodesAdded = self.addMibEntries('nodes', pythonMib, mibModule)
-        trapsAdded = self.addMibEntries(
-            'notifications', pythonMib, mibModule
-        )
-        self.log.info(
-            "Parsed %d nodes and %d notifications from %s",
-            nodesAdded, trapsAdded, mibName
-        )
-
-        # Add the MIB tree permanently to the DMD unless --nocommit flag.
-        msg = "Loaded MIB %s into the DMD" % mibName
-        self.commit(msg)
-        if not self.options.nocommit:
-            self.log.info(msg)
-
-    def parseOptions(self):
-        """
-        """
-        super(ZenMib, self).parseOptions()
-
         # Verify MIB dependency search directory is valid. Fail if not.
         if not os.path.exists(self.options.mibdepsdir):
             self.log.error(
                 "'mibdepsdir' path not found: %s", self.options.mibdepsdir
+            )
+            sys.exit(1)
+
+        if self.options.keeppythoncode:
+            path = self.options.pythoncodedir
+            if not os.path.exists(path):
+                self.log.error("Python code dir not found: %s", path)
+                sys.exit(1)
+            if not os.path.isdir(path):
+                self.log.error("Python code dir is not a directory: %s", path)
+                sys.exit(1)
+
+        # Verify that the target MIB organizer exists
+        miborgpath = os.path.join("/zport/dmd/Mibs", self.options.path)
+        miborg = self.dmd.unrestrictedTraverse(miborgpath, None)
+        if miborg is None:
+            self.log.error(
+                "MIB organizer path option ('path') not found: %s",
+                self.options.path
             )
             sys.exit(1)
 
@@ -290,7 +236,7 @@ class ZenMib(ZCmdBase):
             help="Directory of input MIB files [default: %default]"
         )
         self.parser.add_option(
-            '--path', dest='path', default="/",
+            '--path', dest='path', default="",
             help="Path to load MIB into the DMD [default: %default]"
         )
         self.parser.add_option(
@@ -334,4 +280,4 @@ class ZenMib(ZCmdBase):
 
 if __name__ == '__main__':
     zm = ZenMib()
-    zm.main()
+    zm.run()
