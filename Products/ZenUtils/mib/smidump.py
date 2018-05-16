@@ -86,7 +86,7 @@ class SMIDump(object):
         # (s1, e1, s2, e2, ..., sN, eN) -> ((e1, s2), (e2, s3), ..., (eN, L))
         # where 'L' is the offset to the end of the dump string.
         # (note that the first offset is ignored)
-        offsets = offsets[1:] + [len(self._dump)] if offsets else []
+        offsets = offsets[1:] + [len(self._dump)-1] if offsets else []
         mib_offsets = map(
             # The 'y' offset will be a '}' character in dumps containing
             # multiple MIB definitions.  To ensure correct offsets, move the
@@ -153,6 +153,9 @@ class SMIDump(object):
         """
         results = list(MIB_METADATA.finditer(self._dump))
 
+        if not results:
+            return ()
+
         # Store the filenames found in the content
         filenames = [m.groups()[0] for m in results]
 
@@ -172,7 +175,7 @@ class SMIDump(object):
         # The last "following value" is calculated.
         mib_offsets = map(
             lambda x, y: (x, y),
-            *[iter(offsets), iter(offsets[1:] + len(self._dump))]
+            *[iter(offsets), iter(offsets[1:] + [len(self._dump)])]
         )
 
         # Associate the offsets with their corresponding filenames.
