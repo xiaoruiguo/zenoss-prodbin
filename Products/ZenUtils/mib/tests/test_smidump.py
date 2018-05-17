@@ -18,6 +18,11 @@ from Products.ZenUtils.mib import SMIConfigFile, SMIDump, SMIDumpTool, MIBFile
 from Products.ZenUtils.mib import smidump
 
 
+def _readfile(path):
+    with open(path, 'r') as fd:
+        return fd.read()
+
+
 class TestSMIConfigFile(TestCase):
 
     def test_nopath(self):
@@ -83,8 +88,8 @@ class TestSMIDump(TestCase):
         dump_fname = os.path.join(basePath, "SMIDUMP01-MIB.mib.py")
         defs_fname = os.path.join(basePath, "SMIDUMP01-MIB.mib.defn")
 
-        dump_data = open(dump_fname).read()
-        expected_def = open(defs_fname).read().strip()  # remove trailing \n
+        dump_data = _readfile(dump_fname)
+        expected_def = _readfile(defs_fname).strip()  # remove trailing \n
 
         dump = SMIDump(dump_data)
 
@@ -98,9 +103,9 @@ class TestSMIDump(TestCase):
         defs1_fname = os.path.join(basePath, "SMIDUMP01-MIB.mib.defn")
         defs2_fname = os.path.join(basePath, "SMIDUMP02-MIB.mib.defn")
 
-        dump_data = open(dump_fname).read()
-        expected_def1 = open(defs1_fname).read().strip()  # remove trailing \n
-        expected_def2 = open(defs2_fname).read().strip()  # remove trailing \n
+        dump_data = _readfile(dump_fname)
+        expected_def1 = _readfile(defs1_fname).strip()  # remove trailing \n
+        expected_def2 = _readfile(defs2_fname).strip()  # remove trailing \n
 
         dump = SMIDump(dump_data)
 
@@ -112,7 +117,7 @@ class TestSMIDump(TestCase):
     def test_one_file(self):
         basePath = zenPath("Products/ZenUtils/mib/tests")
         dump_fname = os.path.join(basePath, "SMIDUMP01-MIB.mib.py")
-        dump_data = open(dump_fname).read()
+        dump_data = _readfile(dump_fname)
         dump = SMIDump(dump_data)
 
         files = list(dump.files)
@@ -126,9 +131,9 @@ class TestSMIDump(TestCase):
         file1_fname = os.path.join(basePath, "SMIDUMP01-MIB.mib.py")
         file2_fname = os.path.join(basePath, "SMIDUMP02-MIB.mib.py")
 
-        dump_data = open(dump_fname).read()
-        expected_file1 = open(file1_fname).read()
-        expected_file2 = open(file2_fname).read()
+        dump_data = _readfile(dump_fname)
+        expected_file1 = _readfile(file1_fname)
+        expected_file2 = _readfile(file2_fname)
 
         dump = SMIDump(dump_data)
 
@@ -145,9 +150,9 @@ class TestSMIDump(TestCase):
         file1_fname = os.path.join(basePath, "multi.mib.py")
         file2_fname = os.path.join(basePath, "SMIDUMP03-MIB.mib.py")
 
-        dump_data = open(dump_fname).read()
-        expected_file1 = open(file1_fname).read()
-        expected_file2 = open(file2_fname).read()
+        dump_data = _readfile(dump_fname)
+        expected_file1 = _readfile(file1_fname)
+        expected_file2 = _readfile(file2_fname)
 
         dump = SMIDump(dump_data)
 

@@ -1,9 +1,11 @@
 import os
 import re
+import shutil
 import tarfile
 import urllib
 import zipfile
 
+from contextlib import closing
 from urlparse import urlsplit, SplitResult
 
 moduleNameMatcher = re.compile(
@@ -73,20 +75,7 @@ def _pathwalker(root):
     """
     for path, _, filenames in os.walk(root):
         for name in filenames:
-            yield os.path(path, name)
-
-
-def _removeDirContents(path):
-    for root, dirs, files in os.walk(path, topdown=False):
-        if root == os.sep:  # Should *never* get here
-            break
-        for name in files:
-            os.remove(os.path.join(root, name))
-        for name in dirs:
-            try:
-                os.removedirs(os.path.join(root, name))
-            except OSError:
-                pass
+            yield os.path.join(path, name)
 
 
 class PRL(object):
@@ -136,21 +125,22 @@ class PRL(object):
 class ZipExtractor(object):
 
     def challenge(self, source):
-        return zipfile.is_zipfile(source)
+        return os.path.isfile(source) and zipfile.is_zipfile(source)
 
     def extract(self, source, path):
         """Unzip the source file into the given directory path.
         """
-        with zipfile.ZipFile(source, 'r') as zf:
+        with closing(zipfile.ZipFile(source, 'r')) as zf:
             if zf.testzip() is not None:
                 raise ValueError("Zip file %s is corrupted" % source)
             zf.extractall(path)
+        return list(_pathwalker(path))
 
 
 class TarExtractor(object):
 
     def challenge(self, source):
-        return tarfile.is_tarfile(source)
+        return os.path.isfile(source) and tarfile.is_tarfile(source)
 
     def extract(self, source, path):
         """Extract the source tar file into the target directory.
@@ -158,6 +148,7 @@ class TarExtractor(object):
         with tarfile.open(source, 'r') as tf:
             for info in (mi for mi in tf if mi.isfile()):
                 self._write(tf, info, path)
+        return list(_pathwalker(path))
 
     def _write(self, tf, info, path):
         dirname, filename = os.path.split(info.name)
@@ -170,7 +161,8 @@ class TarExtractor(object):
                 "is not a directory" % (info.name, targetdir)
             )
         targetfile = os.path.join(targetdir, filename)
-        with tf.extractfile(info) as src, open(targetfile, 'w') as sink:
+        with closing(tf.extractfile(info)) as src, \
+                open(targetfile, 'w') as sink:
             sink.write(src.read())
 
 
@@ -235,7 +227,7 @@ class PackageManager(object):
     the package and return a list of filenames.
     """
 
-    def __init__(self, log, downloaddir, extractdir):
+    def __init__(self, downloaddir, extractdir):
         """
         Initialize the packagae manager.
 
@@ -246,7 +238,6 @@ class PackageManager(object):
         @parameter extractdir: directory name to store downloads
         @type extractdir: string
         """
-        self.log = log
         self._downloaddir = downloaddir
         self._extractdir = extractdir
 
@@ -265,5 +256,7 @@ class PackageManager(object):
         """
         Remove any clutter left over from the installation.
         """
-        _removeDirContents(self._downloaddir)
-        _removeDirContents(self._extractdir)
+        if self._downloaddir != "/":
+            shutil.rmtree(self._downloaddir)
+        if self._extractdir != "/":
+            shutil.rmtree(self._extractdir)
