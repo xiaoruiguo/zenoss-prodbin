@@ -173,25 +173,32 @@ class TestSMIDumpTool(TestCase):
     def setUp(self):
         self.patch_popen = mock.patch("Products.ZenUtils.mib.smidump.Popen")
         self.mock_popen = self.patch_popen.start()
-        self.mock_process = mock.Mock(spec=smidump.Popen)
+
+        self.mock_process = mock.Mock(
+            spec=smidump.Popen,
+            communicate=mock.Mock(return_value=([""], [""])),
+            poll=mock.Mock(return_value=0)
+        )
+
         self.mock_popen.return_value = self.mock_process
-        self.mock_process.communicate = mock.Mock(return_value=([""], [""]))
-        self.mock_process.poll = mock.Mock(return_value=0)
+
+        self.mockMibFile = mock.Mock(
+            spec=MIBFile,
+            filename="FAKE-MIB.mib",
+            names=["FAKE-MIB"]
+        )
 
     def tearDown(self):
         self.patch_popen.stop()
 
     def test_cmdline_no_config(self):
-        mockMibFile = mock.Mock(spec=MIBFile)
-        mockMibFile.filename = "FAKE-MIB.mib"
-        mockMibFile.names = ["FAKE-MIB"]
-
         expected_cmd = [
-            "smidump", "--keep-going", "--format", "python", "FAKE-MIB.mib"
+            "smidump", "--keep-going", "--format", "python",
+            self.mockMibFile.filename
         ]
 
         tool = SMIDumpTool()
-        dump = tool.run(mockMibFile)
+        dump = tool.run(self.mockMibFile)
         self.assertIsInstance(dump, SMIDump)
         self.mock_popen.assert_called_once_with(
             expected_cmd, stdout=PIPE, stderr=PIPE, close_fds=True
@@ -205,18 +212,14 @@ class TestSMIDumpTool(TestCase):
         mockConfig.filename = "tempfile.conf"
         mockConfig.__enter__.return_value = mockConfig
 
-        mockMibFile = mock.Mock(spec=MIBFile)
-        mockMibFile.filename = "FAKE-MIB.mib"
-        mockMibFile.names = ["FAKE-MIB"]
-
         expected_cmd = [
             "smidump", "--keep-going", "--format", "python",
-            "--config", "tempfile.conf", "FAKE-MIB.mib"
+            "--config", mockConfig.filename, self.mockMibFile.filename
         ]
 
         with mockConfig as cfg:
             tool = SMIDumpTool(config=cfg)
-            dump = tool.run(mockMibFile)
+            dump = tool.run(self.mockMibFile)
 
         self.assertIsInstance(dump, SMIDump)
         self.mock_popen.assert_called_once_with(
@@ -234,7 +237,8 @@ class TestSMIDumpTool(TestCase):
 
         expected_cmd = [
             "smidump", "--keep-going", "--format", "python",
-            "FAKE-01-MIB.mib", "FAKE-02-MIB.mib"
+            mockMibFile1.filename,
+            mockMibFile2.filename
         ]
 
         tool = SMIDumpTool()
@@ -245,17 +249,17 @@ class TestSMIDumpTool(TestCase):
         )
 
     def test_cmdline_one_file_n_modules(self):
-        mockMibFile = mock.Mock(spec=MIBFile)
-        mockMibFile.filename = "FAKE-01-MIB.mib"
-        mockMibFile.names = ["FAKE-01-MIB", "FAKE-02-MIB", "FAKE-03-MIB"]
+        self.mockMibFile.filename = "FAKE-01-MIB.mib"
+        self.mockMibFile.names = ["FAKE-01-MIB", "FAKE-02-MIB", "FAKE-03-MIB"]
 
         expected_cmd = [
             "smidump", "--keep-going", "--format", "python",
-            "FAKE-01-MIB.mib", "FAKE-01-MIB", "FAKE-02-MIB"
+            self.mockMibFile.filename,
+            "FAKE-01-MIB", "FAKE-02-MIB"
         ]
 
         tool = SMIDumpTool()
-        dump = tool.run(mockMibFile)
+        dump = tool.run(self.mockMibFile)
         self.assertIsInstance(dump, SMIDump)
         self.mock_popen.assert_called_once_with(
             expected_cmd, stdout=PIPE, stderr=PIPE, close_fds=True
@@ -272,7 +276,7 @@ class TestSMIDumpTool(TestCase):
 
         expected_cmd = [
             "smidump", "--keep-going", "--format", "python",
-            "fake001.txt", "fake002.txt",
+            mockMibFile1.filename, mockMibFile2.filename,
             "FAKE-01-MIB", "MOCK-MIB", "PSUEDO-MIB"
         ]
 
@@ -289,11 +293,7 @@ class TestSMIDumpTool(TestCase):
         )
         self.mock_process.poll = mock.Mock(return_value=128)
 
-        mockMibFile = mock.Mock(spec=MIBFile)
-        mockMibFile.filename = "fake001.txt"
-        mockMibFile.names = ["FAKE-01-MIB"]
-
         tool = SMIDumpTool()
         with self.assertRaises(RuntimeError) as ex:
-            tool.run(mockMibFile)
+            tool.run(self.mockMibFile)
         self.assertMultiLineEqual(str(ex.exception), "smidump failed:\nboom")
