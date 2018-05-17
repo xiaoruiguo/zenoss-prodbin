@@ -10,14 +10,15 @@
 import mock
 import os
 
-from Products.ZenTestCase.BaseTestCase import BaseTestCase
-from Products.ZenUtils.Utils import zenPath
+from subprocess import PIPE
+from unittest import TestCase
 
-from Products.ZenUtils.mib import SMIConfigFile, SMIDump  # , SMIDumpTool
+from Products.ZenUtils.Utils import zenPath
+from Products.ZenUtils.mib import SMIConfigFile, SMIDump, SMIDumpTool, MIBFile
 from Products.ZenUtils.mib import smidump
 
 
-class TestSMIConfigFile(BaseTestCase):
+class TestSMIConfigFile(TestCase):
 
     def test_nopath(self):
         tempFile = mock.Mock()
@@ -67,7 +68,7 @@ class TestSMIConfigFile(BaseTestCase):
             smidump.NamedTemporaryFile = orig
 
 
-class TestSMIDump(BaseTestCase):
+class TestSMIDump(TestCase):
 
     def setUp(self):
         self.maxDiff = None
@@ -160,3 +161,154 @@ class TestSMIDump(BaseTestCase):
         item = next((i for i in files if i[0] == "SMIDUMP03-MIB.mib"), None)
         self.assertIsNotNone(item)
         self.assertMultiLineEqual(item[1], expected_file2)
+
+
+class TestSMIDumpTool(TestCase):
+
+    @mock.patch("Products.ZenUtils.mib.smidump.Popen")
+    def test_cmdline_no_config(self, mockPopen):
+        mockProcess = mock.Mock(spec=smidump.Popen)
+        mockPopen.return_value = mockProcess
+        mockProcess.communicate = mock.Mock(return_value=([""], [""]))
+        mockProcess.poll = mock.Mock(return_value=0)
+
+        mockMibFile = mock.Mock(spec=MIBFile)
+        mockMibFile.filename = "FAKE-MIB.mib"
+        mockMibFile.names = ["FAKE-MIB"]
+
+        expected_cmd = [
+            "smidump", "--keep-going", "--format", "python", "FAKE-MIB.mib"
+        ]
+
+        tool = SMIDumpTool()
+        dump = tool.run(mockMibFile)
+        self.assertIsInstance(dump, SMIDump)
+        self.assertEqual(len(list(dump.definitions)), 0)
+        mockPopen.assert_called_once_with(
+            expected_cmd, stdout=PIPE, stderr=PIPE, close_fds=True
+        )
+
+    @mock.patch("Products.ZenUtils.mib.smidump.Popen")
+    @mock.patch("Products.ZenUtils.mib.tests.test_smidump.SMIConfigFile")
+    def test_cmdline_with_config(self, mockConfig, mockPopen):
+        mockProcess = mock.Mock(spec=smidump.Popen)
+        mockPopen.return_value = mockProcess
+        mockProcess.communicate = mock.Mock(return_value=([""], [""]))
+        mockProcess.poll = mock.Mock(return_value=0)
+
+        mockConfig.filename = "tempfile.conf"
+        mockConfig.__enter__.return_value = mockConfig
+
+        mockMibFile = mock.Mock(spec=MIBFile)
+        mockMibFile.filename = "FAKE-MIB.mib"
+        mockMibFile.names = ["FAKE-MIB"]
+
+        expected_cmd = [
+            "smidump", "--keep-going", "--format", "python",
+            "--config", "tempfile.conf", "FAKE-MIB.mib"
+        ]
+
+        with mockConfig as cfg:
+            tool = SMIDumpTool(config=cfg)
+            dump = tool.run(mockMibFile)
+
+        self.assertIsInstance(dump, SMIDump)
+        self.assertEqual(len(list(dump.definitions)), 0)
+        mockPopen.assert_called_once_with(
+            expected_cmd, stdout=PIPE, stderr=PIPE, close_fds=True
+        )
+
+    @mock.patch("Products.ZenUtils.mib.smidump.Popen")
+    def test_cmdline_n_files(self, mockPopen):
+        mockProcess = mock.Mock(spec=smidump.Popen)
+        mockPopen.return_value = mockProcess
+        mockProcess.communicate = mock.Mock(return_value=([""], [""]))
+        mockProcess.poll = mock.Mock(return_value=0)
+
+        mockMibFile1 = mock.Mock(spec=MIBFile)
+        mockMibFile1.filename = "FAKE-01-MIB.mib"
+        mockMibFile1.names = ["FAKE-01-MIB"]
+        mockMibFile2 = mock.Mock(spec=MIBFile)
+        mockMibFile2.filename = "FAKE-02-MIB.mib"
+        mockMibFile2.names = ["FAKE-02-MIB"]
+
+        expected_cmd = [
+            "smidump", "--keep-going", "--format", "python",
+            "FAKE-01-MIB.mib", "FAKE-02-MIB.mib"
+        ]
+
+        tool = SMIDumpTool()
+        dump = tool.run(mockMibFile1, mockMibFile2)
+        self.assertIsInstance(dump, SMIDump)
+        self.assertEqual(len(list(dump.definitions)), 0)
+        mockPopen.assert_called_once_with(
+            expected_cmd, stdout=PIPE, stderr=PIPE, close_fds=True
+        )
+
+    @mock.patch("Products.ZenUtils.mib.smidump.Popen")
+    def test_cmdline_one_file_n_modules(self, mockPopen):
+        mockProcess = mock.Mock(spec=smidump.Popen)
+        mockPopen.return_value = mockProcess
+        mockProcess.communicate = mock.Mock(return_value=([""], [""]))
+        mockProcess.poll = mock.Mock(return_value=0)
+
+        mockMibFile = mock.Mock(spec=MIBFile)
+        mockMibFile.filename = "FAKE-01-MIB.mib"
+        mockMibFile.names = ["FAKE-01-MIB", "FAKE-02-MIB", "FAKE-03-MIB"]
+
+        expected_cmd = [
+            "smidump", "--keep-going", "--format", "python",
+            "FAKE-01-MIB.mib", "FAKE-01-MIB", "FAKE-02-MIB"
+        ]
+
+        tool = SMIDumpTool()
+        dump = tool.run(mockMibFile)
+        self.assertIsInstance(dump, SMIDump)
+        self.assertEqual(len(list(dump.definitions)), 0)
+        mockPopen.assert_called_once_with(
+            expected_cmd, stdout=PIPE, stderr=PIPE, close_fds=True
+        )
+
+    @mock.patch("Products.ZenUtils.mib.smidump.Popen")
+    def test_cmdline_n_files_n_modules(self, mockPopen):
+        mockProcess = mock.Mock(spec=smidump.Popen)
+        mockPopen.return_value = mockProcess
+        mockProcess.communicate = mock.Mock(return_value=([""], [""]))
+        mockProcess.poll = mock.Mock(return_value=0)
+
+        mockMibFile1 = mock.Mock(spec=MIBFile)
+        mockMibFile1.filename = "fake001.txt"
+        mockMibFile1.names = ["FAKE-01-MIB", "FAKE-02-MIB"]
+        mockMibFile2 = mock.Mock(spec=MIBFile)
+        mockMibFile2.filename = "fake002.txt"
+        mockMibFile2.names = ["MOCK-MIB", "PSUEDO-MIB", "FLIMFLAM-MIB"]
+
+        expected_cmd = [
+            "smidump", "--keep-going", "--format", "python",
+            "fake001.txt", "fake002.txt",
+            "FAKE-01-MIB", "MOCK-MIB", "PSUEDO-MIB"
+        ]
+
+        tool = SMIDumpTool()
+        dump = tool.run(mockMibFile1, mockMibFile2)
+        self.assertIsInstance(dump, SMIDump)
+        self.assertEqual(len(list(dump.definitions)), 0)
+        mockPopen.assert_called_once_with(
+            expected_cmd, stdout=PIPE, stderr=PIPE, close_fds=True
+        )
+
+    @mock.patch("Products.ZenUtils.mib.smidump.Popen")
+    def test_cmd_error(self, mockPopen):
+        mockProcess = mock.Mock(spec=smidump.Popen)
+        mockPopen.return_value = mockProcess
+        mockProcess.communicate = mock.Mock(return_value=([""], ["boom"]))
+        mockProcess.poll = mock.Mock(return_value=128)
+
+        mockMibFile = mock.Mock(spec=MIBFile)
+        mockMibFile.filename = "fake001.txt"
+        mockMibFile.names = ["FAKE-01-MIB"]
+
+        tool = SMIDumpTool()
+        with self.assertRaises(RuntimeError) as ex:
+            tool.run(mockMibFile)
+        self.assertMultiLineEqual(str(ex.exception), "smidump failed:\nboom")

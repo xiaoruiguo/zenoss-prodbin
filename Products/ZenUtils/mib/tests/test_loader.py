@@ -11,7 +11,9 @@
 import mock
 import os
 
-from Products.ZenTestCase.BaseTestCase import BaseTestCase
+from unittest import TestCase
+
+# from Products.ZenTestCase.BaseTestCase import BaseTestCase
 from Products.ZenUtils.mib import MIBLoader, ModuleManager
 from Products.ZenUtils.mib.smidump import SMIDump
 from Products.ZenUtils.mib.loader import (
@@ -28,7 +30,7 @@ class CoroutineMock(object):
         self.received.append(item)
 
 
-class TestAddMib(BaseTestCase):
+class TestAddMib(TestCase):
     """
     """
 
@@ -54,7 +56,7 @@ class TestAddMib(BaseTestCase):
         ])
 
 
-class TestTransform(BaseTestCase):
+class TestTransform(TestCase):
 
     def test_simple(self):
         target = CoroutineMock()
@@ -73,7 +75,7 @@ class TestTransform(BaseTestCase):
         self.assertEqual(target.received[0], "b")
 
 
-class TestBroadcast(BaseTestCase):
+class TestBroadcast(TestCase):
 
     def test_one_target(self):
         target = CoroutineMock()
@@ -98,7 +100,7 @@ class TestBroadcast(BaseTestCase):
             self.assertEqual(target.received[0], item)
 
 
-class TestIterate(BaseTestCase):
+class TestIterate(TestCase):
 
     def test_empty(self):
         target = CoroutineMock()
@@ -122,7 +124,7 @@ class TestIterate(BaseTestCase):
             routine.send([1, 2, 3])
 
 
-class TestFileWriter(BaseTestCase):
+class TestFileWriter(TestCase):
 
     def test_ok(self):
         path = "/a/b/c"
@@ -151,7 +153,7 @@ class TestFileWriter(BaseTestCase):
                 routine.send((fname, contents))
 
 
-class TestEvalPythonLiteral(BaseTestCase):
+class TestEvalPythonLiteral(TestCase):
 
     def test_dict(self):
         literal = """{"a": 1}"""
@@ -202,7 +204,7 @@ class TestEvalPythonLiteral(BaseTestCase):
             routine.send(data)
 
 
-class TestMIBLoader(BaseTestCase):
+class TestMIBLoader(TestCase):
 
     def test_load_only(self):
         manager = mock.Mock(spec=ModuleManager)
